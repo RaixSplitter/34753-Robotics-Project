@@ -6,7 +6,12 @@
 
 PROJECT_NAME = robotics_project
 PYTHON_VERSION = 3.10
-PYTHON_INTERPRETER = python3
+PYTHON_INTERPRETER = python
+
+# NOTICE THAT dynamixel_sdk can only be invoked by using the keyword python and not python3
+# Also notice that for the use of a virtual environment, you have to navigate to the 
+# dynamixel_sdk build folder and run the "python setup.py install" everytime you initiate a new
+# Python environment in order to add the library to the environment.
 
 #################################################################################
 # COMMANDS                                                                      #
