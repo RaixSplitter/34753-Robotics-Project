@@ -7,17 +7,16 @@ import msvcrt
 import numpy as np
 from random import choice
 import matplotlib.pyplot as plt
-from skimage.filters import median, gaussian, threshold_otsu
+# from skimage.filters import median, gaussian, threshold_otsu
 from skimage.morphology import erosion, dilation, disk
+from time import sleep
+from datetime import datetime
+
+debug_mode = False
 
 # robot settings
-bot_is_first                  = False
+bot_is_first                  = True
 joint_speed                   = 40
-camera_pos                    = [512, 370, 430, 140]
-'''
-[512, 410, 270, 547] cam
-
-'''
 ADDR_MX_TORQUE_ENABLE         = 24
 ADDR_MX_CW_COMPLIANCE_MARGIN  = 26
 ADDR_MX_CCW_COMPLIANCE_MARGIN = 27
@@ -28,10 +27,26 @@ ADDR_MX_MOVING_SPEED          = 32
 ADDR_MX_PRESENT_POSITION      = 36
 ADDR_MX_PUNCH                 = 48
 PROTOCOL_VERSION              = 1.0
-DXL_IDS                       = [1,2,3,4]
+DXL_IDS                       = [1,152,3,4]
 BAUDRATE                      = 1_000_000
 TORQUE_ENABLE                 = 1
 TORQUE_DISABLE                = 0
+
+pos_dict = {
+    "cam" : [512, 365, 370, 500],
+    "bc"  : [512, 320, 300, 620],
+    "mc"   : [512, 275, 390, 585],
+    "tc"  : [512, 210, 515, 560],
+    
+    "br"  : [485, 330, 290, 620],
+    "mr"  : [487, 280, 385, 585],
+    "tr"  : [490, 210, 515, 570],
+    
+    "bl"  : [539, 330, 290, 620],
+    "ml"  : [537, 280, 385, 585],
+    "tl"  : [534, 210, 515, 570],
+}
+
 # auto connect
 for i in range(10):
     try:
@@ -93,7 +108,37 @@ def move_joints(goals):
             at_joint += 1
         if at_joint == len(goals):
             break
+
+def robot_lose():
+    turn = 40
+    move_joints([512, 590, 130, 510])
+    move_joints([512+turn, 590, 130, 510])
+    move_joints([512-turn, 590, 130, 510])
+    move_joints([512+turn, 590, 130, 510])
+    move_joints([512-turn, 590, 130, 510])
+    move_joints([512, 590, 130, 510])
+    move_joints(pos_dict["cam"])
+
+def robot_win():
+    for DXL_ID,speed in zip(DXL_IDS,[160,80,80,80]):
+        packetHandler.write2ByteTxRx(portHandler, DXL_ID, ADDR_MX_MOVING_SPEED, speed)
     
+    move_joints([512, 248, 699, 732])
+    
+    move_joints([408, 288, 706, 732])
+    move_joints([512, 248, 699, 732])
+    move_joints([616, 288, 706, 732])
+    move_joints([512, 248, 699, 732])
+    
+    move_joints([408, 288, 706, 732])
+    move_joints([512, 248, 699, 732])
+    move_joints([616, 288, 706, 732])
+    move_joints([512, 248, 699, 732])
+    
+    move_joints(pos_dict["cam"])
+    for DXL_ID in DXL_IDS:
+        packetHandler.write2ByteTxRx(portHandler, DXL_ID, ADDR_MX_MOVING_SPEED, joint_speed)
+
 # cell segmentation
 def get_cells(img_gray):
     dilation_disk = disk(1)
@@ -220,8 +265,8 @@ class v_agent():
             self.xo = "O"
             self.evaluate = min
             print("Bot is O and goes second")
-        self.ver_pos = {0: "Top", 1:"Middle", 2:"Bottom"}
-        self.hor_pos = {0: "Left", 1:"Middle", 2:"Right"}
+        self.ver_pos = {0: "t", 1:"m", 2:"b"}
+        self.hor_pos = {0: "l", 1:"c", 2:"r"}
 
     def get_v_table(self):
         with open('state_values.csv', 'r') as csvfile:
@@ -242,15 +287,26 @@ class v_agent():
         action_values = self.get_action_values(state)
         target = self.evaluate(action_values.values())
         next_action = choice([action for action, v in action_values.items() if v == target])
-        return next_action
+        action_str  = self.ver_pos[next_action//3] + self.hor_pos[next_action%3]
+        return action_str
 
-    def print_action(self, action : int):
-        print(f"Bot places at {self.ver_pos[action//3]} {self.hor_pos[action%3]}")
+def game_done(state):
+    if state[0] != " " and state[0] == state[4] and state[4] == state[8]:
+        return True,[0]
+    elif state[2] != " " and state[2] == state[4] and state[4] == state[6]:
+        return True,[2]
+    for i in range(3):
+        if state[i*3] != " " and state[i*3] == state[i*3+1] and state[i*3] == state[i*3 + 2]:
+            return True,state[i*3]
+        if state[i] != " " and state[i] == state[i + 3] and state[i] == state[i + 6]:
+            return True,state[i]
+    return False,""
+
 # program
 def run_program():
     # initialisze
-    # boot_robot(True)
-    # move_joints(camera_pos) # reset to start position
+    boot_robot(True)
+    move_joints(pos_dict["cam"]) # reset to start position
     robot_cam = cv2.VideoCapture(0)
     model = Model()
     model.load_state_dict(torch.load('model.pth', weights_only=True))
@@ -258,13 +314,15 @@ def run_program():
     agent = v_agent(has_x=bot_is_first)
     if bot_is_first:
         action = agent.choose_action("         ")
-        agent.print_action(action)
+        move_joints(pos_dict[action])
+        sleep(2)
     state_conversion = {0:" ", 1:"O", 2:"X"}
-    
+        
     # run program
+    times = 0
     while True:
         # move to camera position
-        move_joints(camera_pos)
+        move_joints(pos_dict["cam"])
         # img = cv2.imread("tic-tac-toee.jpg")
         while True:
             _result, img = robot_cam.read() # Read an image
@@ -283,10 +341,11 @@ def run_program():
         # get regions
         cropped_regions = get_cells(img_gray)
         cropped_tensors = torch.from_numpy(cropped_regions).float()
-        print(cropped_tensors.shape)
+        if debug_mode: print(cropped_tensors.shape)
         if cropped_tensors.shape[0] != 9:
             print("Error in segmentation")
             continue
+        # if debug_mode:
         fig,ax = plt.subplots(3,3)
         fig.suptitle(f"Cells ")
         axes = []
@@ -295,8 +354,11 @@ def run_program():
                 axes.append(y)
         for ax,region in zip(axes,cropped_regions):
             ax.imshow(region,cmap="gray")
-        plt.axis("off")
-        plt.show()
+            ax.axis("off")
+        plt.tight_layout()
+        plt.savefig(str(times)+".png")
+        times += 1
+        # plt.show()
         
         # convert regions to state
         raw_output = model(cropped_tensors)
@@ -309,9 +371,16 @@ def run_program():
             continue
 
         # evaluate position
+        is_done, winner = game_done(state)
+        if is_done:
+            if winner == agent.xo:
+                robot_win()
+            else:
+                robot_lose()
+        
         action = agent.choose_action(state)
-        agent.print_action(action)
-        # print(action)
+        move_joints(pos_dict[action])
+        sleep(2)
         
     # cv2.destroyAllWindows() # Close window
     cv2.VideoCapture(0).release() # Release video device
@@ -324,3 +393,4 @@ run_program()
 # while True:
 #     action = agent.choose_action(input())
 #     print(f"{ver_pos[action//3]} {hor_pos[action%3]}")
+

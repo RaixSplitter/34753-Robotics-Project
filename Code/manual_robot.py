@@ -55,7 +55,7 @@ def move_joint(i):
 #     if ang < 0 or ang > 100:
 #         raise Exception(f"Error: goal {i+1} breaks the robot")
 ### Unrestrained
-dxl_goal_position = [512, 512, 512, 512]
+dxl_goal_position = [512, 415, 315, 505]
 for i in range(len(DXL_IDS)):
     move_joint(i)
 

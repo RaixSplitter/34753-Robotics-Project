@@ -1,6 +1,6 @@
 from sympy import symbols, cos, sin, Matrix, atan2, acos, sqrt, pi, Array
 import dynamixel_sdk as dxl
-import cv2
+import numpy as np
 
 ADDR_MX_TORQUE_ENABLE         = 24
 ADDR_MX_CW_COMPLIANCE_MARGIN  = 26
@@ -16,6 +16,8 @@ DXL_IDS                       = [1,152,3,4]
 BAUDRATE                      = 1_000_000
 TORQUE_ENABLE                 = 1
 TORQUE_DISABLE                = 0
+joint_limit                   = [(915-512,915),(120,870),(90,960),(500,950)]
+
 # auto connect
 for i in range(10):
     try:
@@ -37,7 +39,7 @@ for DXL_ID in DXL_IDS:
     packetHandler.write2ByteTxRx(portHandler, DXL_ID, ADDR_MX_CCW_COMPLIANCE_MARGIN, 0)
     packetHandler.write1ByteTxRx(portHandler, DXL_ID, ADDR_MX_CW_COMPLIANCE_SLOPE, 32)
     packetHandler.write1ByteTxRx(portHandler, DXL_ID, ADDR_MX_CCW_COMPLIANCE_SLOPE, 32)
-    packetHandler.write2ByteTxRx(portHandler, DXL_ID, ADDR_MX_MOVING_SPEED, 40)
+    packetHandler.write2ByteTxRx(portHandler, DXL_ID, ADDR_MX_MOVING_SPEED, 30)
 
 def move_joints(goals):
     for i,goal in enumerate(goals):
@@ -93,7 +95,9 @@ def inv_kinematics(x,y,z,phi, dh_conv):
     c23 = sqrt(z2**2 + r1**2)
     
     D = (c23**2 - a2**2 - a3**2)/(-2*a2*a3)
-    theta3 = -(atan2(sqrt(1-D**2), D) - pi)
+    print(D)
+    # theta3 = -(atan2(sqrt(1-D**2), D) - pi)
+    theta3 = atan2(-sqrt(1-D**2), D)
     theta2 = atan2(z2, r1) - atan2(a3*sin(theta3), a2 + a3*cos(theta3))
     theta4 = phi - theta2 - theta3
     
@@ -110,20 +114,31 @@ while True:
     try:    values = map(float, input("input:").split(" "))
     except: print("Value Conversion Error"); continue
     
-    try:                   rad = inv_kinematics(*values, dh_conv)
+    try:   
+        rad = inv_kinematics(*values, dh_conv)
     except Exception as e: print(e); continue
     
     for i,r in enumerate(rad):
         if r == None:
             print("Error: joint %s is nan!" % (i))
             reach_error = True
+            break
     if reach_error: continue
         
     ang = rad_to_ang(rad)
-    for i,a in enumerate(ang):
-        if a < 150 or a > 874:
-            print("Error: joint %s is out of allowed range [%s]!" % (i,a))
+    for i in range(len(DXL_IDS)):
+        if ang[i] < joint_limit[i][0] or ang[i] > joint_limit[i][1]:
+            print("Error: joint %s is out of allowed range. Limit %s [%s]!" % (i,joint_limit[i],ang[i]))
             reach_error = True
+    # if reach_error: 
+    #     reach_error = False
+    #     print("Trying elbow up")
+    #     np.mean()
+    #     for i,a in enumerate(ang):
+    #         if a < 150 or a > 874:
+    #             print("Error: joint %s is out of allowed range [%s]!" % (i,a))
+    #             reach_error = True
+    #             break
     if reach_error: continue
     
     move_joints(ang)
